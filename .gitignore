@@ -1,0 +1,7 @@
+
+# 超大文件（超过 GitHub 100MB 限制）
+output/FallAllD_signals.npz
+functionbag/FallAllD.pkl
+DFDNxbq/inst/extdata/catboost/inst/libs/x64/libcatboostr.dll
+
+functionbag/catboost/inst/libs/x64/libcatboostr.dll

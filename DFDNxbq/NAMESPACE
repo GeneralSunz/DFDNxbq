@@ -1,0 +1,50 @@
+# DFDNxbq - NAMESPACE
+# 使用 roxygen2 自动生成, 也可手动编辑
+
+import(torch)
+import(signal)
+
+importFrom(randomForest, randomForest)
+importFrom(e1071, svm)
+importFrom(dlm, dlmModPoly)
+importFrom(dlm, dlmMLE)
+importFrom(dlm, dlmFilter)
+importFrom(wavelets, dwt)
+importFrom(wavelets, idwt)
+# catboost is optional (Suggests), imported dynamically in load_catboost()
+importFrom(reticulate, import)
+
+# ---- 导出函数 ----
+export(BASE_CONFIG)
+
+# --- 主入口 ---
+export(run_pipeline)
+export(run_single_experiment)
+export(load_data_from_npz)
+export(validate_data)
+
+# --- 数据工具 ---
+export(load_data)
+export(build_labels)
+export(build_subjects)
+export(stratified_sample)
+
+# --- 降噪 ---
+export(butterworth_filter)
+export(kalman_filter)
+export(wavelet_denoise)
+export(savgol_filter)
+export(apply_denoise)
+
+# --- 分类器 ---
+export(train_rf)
+export(predict_rf)
+export(train_svm)
+export(predict_svm)
+export(train_catboost)
+export(predict_catboost)
+
+# --- 评估 ---
+export(calc_metrics)
+export(find_best_threshold)
+export(aggregate_predictions)
