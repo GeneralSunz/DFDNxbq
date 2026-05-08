@@ -345,8 +345,7 @@ install.packages(
 
 **解决**：增大 `sample_ratio` 和 `n_epochs`，参考上文"结果说明"中的建议。
 
-## 致谢
-感谢**毛老师**对该项目的精心指导，感谢 **@喝喝** 女士，**@Infinity**先生对该项目做出的卓越贡献。
+
 ```
 DFDNxbq: Deep Fall Detect Net by xbq.
 R package version 1.0.0.
