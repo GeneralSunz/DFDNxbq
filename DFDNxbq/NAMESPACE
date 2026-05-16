@@ -48,3 +48,23 @@ export(predict_catboost)
 export(calc_metrics)
 export(find_best_threshold)
 export(aggregate_predictions)
+
+# --- 工具 & 安装 ---
+export(install_dfdnxbq_deps)
+
+# --- 深度模型 ---
+export(create_patch_encoder)
+export(train_patch_hiba_model)
+
+# --- 信号处理 & 窗口 ---
+export(generate_sliding_windows)
+export(compute_peak_anchor)
+export(compute_complexity_profile)
+export(adaptive_patching)
+export(uniform_patching)
+
+# --- 在线推理 ---
+export(wrap_patch_hiba_model)
+export(create_streaming_predictor)
+export(evaluate_online_simulation)
+export(run_online_evaluation)

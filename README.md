@@ -179,6 +179,116 @@ for (nm in names(result$final_metrics)) {
 source("path\\DFDNxbq\\inst\\examples\\run_experiment.R", encoding = "UTF-8")
 ```
 
+## 在线实时推理
+
+训练阶段采用"峰值锚定"方法：先计算整条动作记录的合加速度全局最大值（冲击峰值），然后截取该峰值前 800ms 的窗口作为训练样本。**部署时无法提前知道未来峰值**，因此推理阶段使用滑动窗口内的**局部最大峰值**作为代理锚点，实现真正的在线预测。
+
+### 架构说明
+
+| 阶段 | 锚点来源 | 窗口提取方式 |
+|------|---------|-------------|
+| 训练 | 全局合加速度最大值 | `[peak - 201, peak - 12]`，不含峰值点 |
+| 推理 | 缓冲区最近 1 秒内的局部最大值 | 同上，索引逻辑完全一致 |
+
+推理流程：
+
+1. 环形缓冲区（默认 1.5 秒）接收实时六轴数据流
+2. 每当缓冲区满 202 个样本后，在最近 1 秒内搜索 SVM（合加速度）局部最大值
+3. 若局部峰值 ≥ `peak_thresh_g`，提取其前 800ms 窗口（不含峰值点）
+4. 用训练时的标准化参数（`scaler_mean` / `scaler_sd`）对窗口做 z-score 标准化
+5. 送入模型预测，若概率 ≥ `prob_threshold` 则触发预警
+6. 冷却机制（默认 500ms）防止同一事件重复预警
+
+### 新增函数
+
+| 函数 | 说明 |
+|------|------|
+| `wrap_patch_hiba_model()` | 将 `patch_hiba_net` 模型（接受 patch 列表）包装为标准窗口输入接口 |
+| `create_streaming_predictor()` | 创建流式预测器闭包，维护环形缓冲区状态，每调用一次处理一个采样点 |
+| `evaluate_online_simulation()` | 逐 trial 模拟实时数据流，计算 trial 级别的混淆矩阵和指标 |
+| `run_online_evaluation()` | 一键函数：加载模型 → 加载 scaler → 加载测试数据 → 运行在线评估 |
+
+### 使用示例
+
+```r
+library(DFDNxbq)
+
+# ---- 方式一：离线模拟评估 ----
+# 前提：已有训练好的模型文件和标准化参数文件
+
+model <- torch_load("output/model.pt")
+scaler <- readRDS("output/scaler.rds")  # list(mean = c(...), sd = c(...))
+test_data <- readRDS("output/test_data.rds")
+
+# 包装 patch_hiba_net 模型（如果模型直接接受 [window_len, 6] 则跳过此步）
+predict_fn <- wrap_patch_hiba_model(model)
+
+# 创建预测器工厂
+factory <- function() {
+  create_streaming_predictor(
+    model          = predict_fn,
+    scaler_mean    = scaler$mean,
+    scaler_sd      = scaler$sd,
+    peak_thresh_g  = 2.0,        # SVM 局部峰值阈值 (g)
+    prob_threshold = 0.5,        # 模型概率阈值
+    verbose        = FALSE
+  )
+}
+
+# 运行评估
+result <- evaluate_online_simulation(test_data, factory)
+print(result$metrics)
+# 输出: recall, specificity, precision, f1, auc, tp, tn, fp, fn
+
+# ---- 方式二：真实实时数据流 ----
+streaming <- create_streaming_predictor(
+  model = predict_fn,
+  scaler_mean = scaler$mean,
+  scaler_sd   = scaler$sd,
+  peak_thresh_g = 2.0,
+  prob_threshold = 0.5
+)
+
+# 模拟逐个采样点到达
+for (i in 1:n_samples) {
+  sample <- c(acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z)
+  result <- streaming(sample)
+  if (result$warning) {
+    cat(sprintf("跌倒预警! 概率=%.4f\n", result$prob))
+  }
+}
+
+# ---- 方式三：一键评估 ----
+result <- run_online_evaluation(
+  model_path     = "output/model.pt",
+  scaler_path    = "output/scaler.rds",
+  test_data_path = "output/test_data.rds",
+  peak_thresh_g  = 2.0,
+  prob_threshold = 0.5,
+  model_is_patch_hiba = TRUE
+)
+```
+
+### 参数调优建议
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `peak_thresh_g` | 2.0 | SVM 局部峰值阈值 (g)。**过低**（< 1.5g）→ 日常活动频繁触发检测 → 误报增加；**过高**（> 3.0g）→ 漏检跌倒前的预警窗口 → 召回率下降。建议在验证集上网格搜索 1.5/2.0/2.5/3.0 |
+| `prob_threshold` | 0.5 | 模型输出概率阈值。可用 `find_best_threshold()` 在验证集上确定最优值 |
+| `buffer_sec` | 1.5 | 缓冲区时长 (秒)。需 ≥ (window_len + n_delta) / fs ≈ 0.85s，推荐 1.5s 留有余量 |
+| `cooldown_ms` | 500 | 预警冷却时间 (ms)。防止同一事件触发多次预警 |
+
+### 评估指标说明
+
+离线模拟评估按 **trial 级别**（非窗口级别）计算混淆矩阵：
+
+| 情况 | 判定 |
+|------|------|
+| 跌倒记录 + 在真实冲击峰值前 ≥ 100ms 发出预警 | TP |
+| 跌倒记录 + 未预警或预警太晚 | FN |
+| 日常活动 + 触发了任意预警 | FP |
+| 日常活动 + 未触发预警 | TN |
+
 ## 实验结果
 
 以下结果基于 FallAllD 数据集 **千分之一（0.1%）分层抽样**，10 个训练周期。
@@ -348,6 +458,6 @@ install.packages(
 
 ```
 DFDNxbq: Deep Fall Detect Net by xbq.
-R package version 1.0.0.
+R package version 1.1.0.
 ```
 
