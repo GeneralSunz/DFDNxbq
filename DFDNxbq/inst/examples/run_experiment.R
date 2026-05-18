@@ -51,7 +51,7 @@ data_list <- load_data_from_npz(npz_path, csv_path)
 
 # ---- 4. 直接使用单实验函数 ----
 # library(DFDNxbq)
-sample_ratio <- 0.03  # 抽样比例
+sample_ratio <- 0.005  # 抽样比例
 data_subset  <- stratified_sample(data_list, frac = sample_ratio)
 
 labels   <- build_labels(data_subset)
@@ -78,39 +78,39 @@ for (nm in names(result2$final_metrics)) {
   }
 }
 
-# ============================================================
-# ---- 5. 在线实时推理 ----
-# ============================================================
-cat("\n\n========== 在线实时推理 ==========\n")
+# # ============================================================
+# # ---- 5. 在线实时推理 ----
+# # ============================================================
+# cat("\n\n========== 在线实时推理 ==========\n")
 
-# 准备标准化参数 + 10-epoch 演示模型
-windows <- do.call(c, lapply(data_subset, \(item) {
-  r <- generate_sliding_windows(item, cfg$delta_ms, 190, cfg$fs)
-  lapply(r$windows, `[[`, "data")
-}))
-arr <- array(unlist(windows), dim = c(190, 6, length(windows)))
-scaler <- list(mean = apply(arr, 2, mean), sd = {s <- apply(arr, 2, sd); s[s==0]<-1; s})
+# # 准备标准化参数 + 10-epoch 演示模型
+# windows <- do.call(c, lapply(data_subset, \(item) {
+#   r <- generate_sliding_windows(item, cfg$delta_ms, 190, cfg$fs)
+#   lapply(r$windows, `[[`, "data")
+# }))
+# arr <- array(unlist(windows), dim = c(190, 6, length(windows)))
+# scaler <- list(mean = apply(arr, 2, mean), sd = {s <- apply(arr, 2, sd); s[s==0]<-1; s})
 
-demo_data <- lapply(windows, \(w) as.matrix(scale(w, scaler$mean, scaler$sd)))
-demo_patches <- lapply(demo_data, \(sig) uniform_patching(sig, 8))
-n_win <- sapply(data_subset, \(x) length(generate_sliding_windows(x, cfg$delta_ms, 190, cfg$fs)$windows))
-demo_labels <- build_labels(data_subset)[rep(seq_along(data_subset), n_win)]
+# demo_data <- lapply(windows, \(w) as.matrix(scale(w, scaler$mean, scaler$sd)))
+# demo_patches <- lapply(demo_data, \(sig) uniform_patching(sig, 8))
+# n_win <- sapply(data_subset, \(x) length(generate_sliding_windows(x, cfg$delta_ms, 190, cfg$fs)$windows))
+# demo_labels <- build_labels(data_subset)[rep(seq_along(data_subset), n_win)]
 
-model <- train_patch_hiba_model(demo_patches, demo_labels,
-  n_epochs = 10, batch_size = 32, patience = 5, d_model = 16,
-  encoder_type = "cnn", use_hiba = TRUE, do_oversample = TRUE)$model
+# model <- train_patch_hiba_model(demo_patches, demo_labels,
+#   n_epochs = 10, batch_size = 32, patience = 5, d_model = 16,
+#   encoder_type = "cnn", use_hiba = TRUE, do_oversample = TRUE)$model
 
-# 推理管线
-predict_fn <- wrap_patch_hiba_model(model)
-streaming <- create_streaming_predictor(predict_fn, scaler$mean, scaler$sd, peak_thresh_g = 2.0)
+# # 推理管线
+# predict_fn <- wrap_patch_hiba_model(model)
+# streaming <- create_streaming_predictor(predict_fn, scaler$mean, scaler$sd, peak_thresh_g = 2.0)
 
-# 单条流式测试
-item <- data_subset[[which(labels)[1]]]
-for (s in seq_len(nrow(item$Acc_raw))) {
-  r <- streaming(c(item$Acc_raw[s, ], item$Gyr_raw[s, ]))
-  if (r$warning) { cat(sprintf("  预警 @%d/%d | prob=%.4f\n", s, nrow(item$Acc_raw), r$prob)); break }
-}
+# # 单条流式测试
+# item <- data_subset[[which(labels)[1]]]
+# for (s in seq_len(nrow(item$Acc_raw))) {
+#   r <- streaming(c(item$Acc_raw[s, ], item$Gyr_raw[s, ]))
+#   if (r$warning) { cat(sprintf("  预警 @%d/%d | prob=%.4f\n", s, nrow(item$Acc_raw), r$prob)); break }
+# }
 
-# 全量在线评估
-evaluate_online_simulation(data_subset, \()
-  create_streaming_predictor(predict_fn, scaler$mean, scaler$sd, peak_thresh_g = 2.0))
+# # 全量在线评估
+# evaluate_online_simulation(data_subset, \()
+#   create_streaming_predictor(predict_fn, scaler$mean, scaler$sd, peak_thresh_g = 2.0))

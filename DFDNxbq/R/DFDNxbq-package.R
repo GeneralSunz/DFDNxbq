@@ -149,7 +149,7 @@ BASE_CONFIG <- list(
   patch_min_len = 4,
   patch_complexity_smooth = 5,
   # 编码器 & HIBA
-  d_model = 16,
+  d_model = 128,
   encoder_type = "conv_lstm",
   use_hiba = TRUE,
   hiba_group_size = 3,
